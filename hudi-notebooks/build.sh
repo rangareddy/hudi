@@ -17,7 +17,7 @@
 
 set -eux
 
-export HUDI_VERSION=1.0.2
+export HUDI_VERSION=1.1.0
 export HUDI_VERSION_TAG=${HUDI_VERSION}
 export SPARK_VERSION=3.5.7
 export HIVE_VERSION=3.1.3
