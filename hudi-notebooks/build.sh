@@ -26,6 +26,8 @@ export TRINO_VERSION=477
 export TRINO_VERSION_TAG=${TRINO_VERSION}
 export PRESTO_VERSION=0.296
 export PRESTO_VERSION_TAG=${PRESTO_VERSION}
+export JAVA_VERSION=17
+export SCALA_VERSION=2.12
 
 SCRIPT_DIR=$(cd $(dirname $0); pwd)
 
@@ -34,6 +36,8 @@ echo "Building Spark Hudi Docker image using Spark version: $SPARK_VERSION and H
 docker build \
     --build-arg HUDI_VERSION="$HUDI_VERSION" \
     --build-arg SPARK_VERSION="$SPARK_VERSION" \
+    --build-arg JAVA_VERSION="$JAVA_VERSION" \
+    --build-arg SCALA_VERSION="$SCALA_VERSION" \
     -t apachehudi/spark-hudi:latest \
     -t apachehudi/spark-hudi:"$HUDI_VERSION_TAG" \
     -f "$SCRIPT_DIR"/Dockerfile.spark .
