@@ -17,47 +17,73 @@
 from pyspark.sql import SparkSession
 from IPython.display import display as display_html, HTML
 import boto3
+import os
 from urllib.parse import urlparse
 
-def get_spark_session(app_name="Hudi-Notebooks", log_level="WARN"):
+_spark = None
+
+def get_spark_session(app_name="Hudi-Notebooks", log_level="WARN", hudi_version="1.0.2"):
     """
     Initialize a SparkSession
-    
+
     Parameters:
     - app_name (str): Optional name for the Spark application.
     - log_level (str): Log level for Spark (DEBUG, INFO, WARN, ERROR). Defaults to WARN.
-    
+
     Returns:
     - SparkSession object
     """
-    
-    spark_session = SparkSession.builder \
-        .appName(app_name) \
-	    .config("spark.hadoop.fs.defaultFS", "s3a://warehouse") \
-        .config("spark.log.level", log_level) \
-        .enableHiveSupport() \
-        .getOrCreate()
-        
-    print(f"SparkSession started with app name: {app_name}, log level: {log_level}")
-    
-    return spark_session
 
-# Initialize Spark globally so other functions can use it
-spark = get_spark_session()
+    global _spark
+
+    if _spark is None:
+        hudi_home = os.getenv("HUDI_HOME")
+        spark_version = os.getenv("SPARK_VERSION", "3.5.7")
+        spark_minor_version = ".".join(spark_version.split(".")[:2])
+        scala_version = os.getenv("SCALA_VERSION", "2.12")
+        hudi_jar_path = f"hudi-spark{spark_minor_version}-bundle_{scala_version}-{hudi_version}.jar"
+        hudi_packages = f"org.apache.hudi:hudi-spark{spark_minor_version}-bundle_{scala_version}:{hudi_version}"
+        hudi_jars = os.path.join(hudi_home, hudi_version, hudi_jar_path)
+        conf_param = "spark.jars" if os.path.exists(hudi_jars) else "spark.jars.packages"
+        conf_value = hudi_jars if os.path.exists(hudi_jars) else hudi_packages
+
+        _spark = SparkSession.builder \
+            .appName(app_name) \
+            .config(conf_param, conf_value) \
+            .config("spark.hadoop.fs.defaultFS", "s3a://warehouse") \
+            .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+            .config("spark.sql.extensions", "org.apache.spark.sql.hudi.HoodieSparkSessionExtension") \
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog") \
+            .config("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar") \
+            .enableHiveSupport() \
+            .getOrCreate()
+
+        _spark.sparkContext.setLogLevel(log_level)
+        print(f"SparkSession started with app name: {app_name}, log level: {log_level}")
+
+    return _spark
+
+# Stop the spark session
+def stop_spark_session():
+    global _spark  # Tell Python to use the _spark defined outside this function
+    if '_spark' in globals() and _spark is not None:
+        _spark.stop()
+        _spark = None
+        print("SparkSession stopped successfully.")
 
 # S3 Utility Function
 def ls(base_path):
     """
     List files or directories at the given MinIO S3 path.
-    
+
     Example: ls("s3a://warehouse/hudi_table/")
     """
     if not base_path.startswith("s3a://"):
         raise ValueError("Path must start with 's3a://'")
     try:
-        hadoop_conf = spark._jsc.hadoopConfiguration()
-        fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
-        p = spark._jvm.org.apache.hadoop.fs.Path(base_path)
+        hadoop_conf = _spark._jsc.hadoopConfiguration()
+        fs = _spark._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
+        p = _spark._jvm.org.apache.hadoop.fs.Path(base_path)
         if not fs.exists(p):
             print(f"Path does not exist: {base_path}")
             return []
@@ -82,7 +108,7 @@ def display(df, num_rows=100):
         df (pyspark.sql.DataFrame): The PySpark DataFrame to display.
         num_rows (int): The number of rows to show. Defaults to 100.
     """
-    
+
     # Collect a limited number of rows to the driver as a Pandas DataFrame
     try:
         pandas_df = df.limit(num_rows).toPandas()
@@ -126,6 +152,6 @@ def display(df, num_rows=100):
         }
     </style>
     """
-    
+
     # Display the final HTML
     display_html(HTML(custom_css + html_table))
