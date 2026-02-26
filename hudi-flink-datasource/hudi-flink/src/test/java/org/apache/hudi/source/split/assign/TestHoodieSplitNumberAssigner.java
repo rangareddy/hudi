@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.hudi.source.assign;
+package org.apache.hudi.source.split.assign;
 
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.source.split.HoodieSourceSplit;
@@ -185,7 +185,8 @@ public class TestHoodieSplitNumberAssigner {
         "/table/path/partition1",
         "read_optimized",
         "19700101000000000",
-        fileId
+        fileId,
+        Option.empty()
     );
   }
 }
