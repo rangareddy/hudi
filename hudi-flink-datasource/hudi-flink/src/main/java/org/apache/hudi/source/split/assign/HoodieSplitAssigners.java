@@ -16,28 +16,26 @@
  * limitations under the License.
  */
 
-package org.apache.hudi.cli.testutils;
+package org.apache.hudi.source.split.assign;
 
-import org.apache.hudi.testutils.HoodieSparkClientTestHarness;
-
-import org.junit.jupiter.api.BeforeEach;
+import org.apache.flink.configuration.Configuration;
+import org.apache.hudi.configuration.OptionsResolver;
 
 /**
- * Class to start Bootstrap and JLineShellComponent.
+ * Factory class for creating {@link HoodieSplitAssigner}.
  */
-public class HoodieCLIIntegrationTestHarness extends HoodieSparkClientTestHarness {
+public class HoodieSplitAssigners {
 
-  @BeforeEach
-  public void setup() throws Exception {
-    initPath();
-  }
+  public static HoodieSplitAssigner createHoodieSplitAssigner(
+          Configuration config,
+          int parallelism) {
 
-  /**
-   * Helper to prepare string for matching.
-   * @param str Input string.
-   * @return pruned string with non word characters removed.
-   */
-  protected String removeNonWordAndStripSpace(String str) {
-    return str.replaceAll("[\\s]+", ",").replaceAll("[\\W]+", ",");
+    if (OptionsResolver.isMorWithBucketIndexUpsert(config)) {
+      return new HoodieSplitBucketAssigner(parallelism);
+    } else if (OptionsResolver.isAppendMode(config)) {
+      return new HoodieSplitNumberAssigner(parallelism);
+    }
+
+    return new DefaultHoodieSplitAssigner(parallelism);
   }
 }
