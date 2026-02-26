@@ -38,25 +38,28 @@ ENV SPARK_VERSION=$SPARK_VERSION \
     HUDI_HOME=$HUDI_HOME \
     AWS_JAVA_V1_DISABLE_DEPRECATION_ANNOUNCEMENT=true
 
-ARG SPARK_MINOR_VERSION=${SPARK_VERSION%.*} \
-    HUDI_JARS_PATH=$HUDI_HOME/$HUDI_VERSION \
-    HUDI_SPARK_BUNDLE=hudi-spark${SPARK_MINOR_VERSION}-bundle_$SCALA_VERSION \
-    HUDI_SPARK_BUNDLE_JAR=$HUDI_SPARK_BUNDLE-$HUDI_VERSION.jar
+ARG SPARK_MINOR_VERSION=${SPARK_VERSION%.*}
+ARG HUDI_SPARK_BUNDLE=hudi-spark${SPARK_MINOR_VERSION}-bundle_$SCALA_VERSION
+ARG HUDI_SPARK_BUNDLE_JAR=$HUDI_SPARK_BUNDLE-$HUDI_VERSION.jar
 
-RUN mkdir -p $HUDI_JARS_PATH $NOTEBOOK_HOME && \
+RUN mkdir -p ${HUDI_HOME}/${HUDI_VERSION} $NOTEBOOK_HOME && \
     wget -O $SPARK_HOME/jars/hadoop-aws.jar \
         $MVN_REPO_URL/org/apache/hadoop/hadoop-aws/$HADOOP_VERSION/hadoop-aws-$HADOOP_VERSION.jar && \
     wget -O $SPARK_HOME/jars/aws-java-sdk-bundle.jar \
         $MVN_REPO_URL/com/amazonaws/aws-java-sdk-bundle/$AWS_SDK_VERSION/aws-java-sdk-bundle-$AWS_SDK_VERSION.jar && \
-    wget -O $HUDI_JARS_PATH/$HUDI_SPARK_BUNDLE_JAR \
-        $MVN_REPO_URL/org/apache/hudi/$HUDI_SPARK_BUNDLE/$HUDI_VERSION/$HUDI_SPARK_BUNDLE_JAR
+    wget -O ${HUDI_HOME}/${HUDI_VERSION}/${HUDI_SPARK_BUNDLE_JAR} \
+        $MVN_REPO_URL/org/apache/hudi/${HUDI_SPARK_BUNDLE}/${HUDI_VERSION}/${HUDI_SPARK_BUNDLE_JAR}
+
+COPY requirements.txt /tmp/requirements.txt
 
 RUN apt-get update && \
-    apt-get --fix-broken install -y --no-install-recommends python3-pip cargo && \
+    apt-get install -y --no-install-recommends python3-pip cargo && \
     pip3 install --upgrade pip && \
-    pip3 install jupyter pandas numpy trino presto-python-client hudi>=0.4.0 boto3 && \
+    pip3 install --no-cache-dir -r /tmp/requirements.txt && \
     ln -sf /usr/bin/python3 /usr/bin/python && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/requirements.txt
+
 
 COPY notebooks/ $NOTEBOOK_HOME/
 COPY conf/spark/ $SPARK_HOME/conf/

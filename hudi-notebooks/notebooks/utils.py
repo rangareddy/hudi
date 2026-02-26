@@ -137,11 +137,11 @@ def ls(base_path):
             print(f"Path does not exist: {base_path}")
             return []
         status = fs.listStatus(p)
-        files = [str(f.getPath()) for f in status]
-        for path in files:
-            print(path)
+        files = [str(file.getPath()) for file in status]
+        for f in files:
+            print(f)
     except Exception as e:
-        print(f"Exception occurred while listing path {base_path}: {e}")
+        print(f"Exception occurred while listing files from path {base_path}", e)
 
 
 def display(df, num_rows=None):
