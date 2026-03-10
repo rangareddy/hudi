@@ -93,7 +93,7 @@ In this guide, we will explore how to use various Hudi SQL procedures through pr
 
 #### 6 - Querying Apache Hudi Tables using Trino
 
-Apache Hudi integrates seamlessly with modern query engines such as Trino, enabling fast interactive SQL analytics on lakehouse data. With the Trino Hudi connector, you can query Hudi tables stored in your data lake while leveraging Trino’s distributed query capabilities.
+Apache Hudi integrates seamlessly with modern query engines such as Trino, enabling fast interactive SQL analytics on lakehouse data. With trino-hudi connector, you can query Hudi tables stored in your data lake while leveraging Trino’s distributed query capabilities.
 
 This notebook demonstrates how to create a Hudi dataset using Spark and query it using Trino through the Hive Metastore catalog. By the end of this guide, you will understand how to set up the environment, register Hudi tables, and run analytical queries using Trino SQL.
 
