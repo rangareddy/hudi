@@ -103,7 +103,7 @@ Learn how to generate sample data with Apache Spark, create and register a Hudi 
 
 #### 7 - Querying Apache Hudi Tables using Presto
 
-Presto provides a powerful distributed SQL engine for querying large-scale datasets stored in data lakes. With its Hudi connector, Presto can efficiently read Hudi tables and enable interactive SQL queries on lakehouse data.
+Presto provides a powerful distributed SQL engine for querying large-scale datasets stored in data lakes. With presto-hudi connector, you can efficiently read Hudi tables and enable interactive SQL queries on lakehouse data.
 
 This notebook introduces querying Apache Hudi tables with Presto, enabling high-performance, interactive SQL analytics on your Hudi datasets. You will run SQL directly against Hudi tables stored in object storage and explore Presto’s integration with Hudi’s table formats.
 
