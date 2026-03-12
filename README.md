@@ -101,7 +101,7 @@ Prerequisites for building Apache Hudi:
 ```
 # Checkout code and build
 git clone https://github.com/apache/hudi.git && cd hudi
-mvn clean package -DskipTests -Dspark3.5 -Dflink2.1
+mvn clean package -DskipTests -Dspark3.5 -Dflink1.20
 
 # Start command
 spark-3.5.0-bin-hadoop3/bin/spark-shell \
