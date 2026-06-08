@@ -145,6 +145,10 @@ module.exports = {
             to: "/docs/next/indexes",
           },
           {
+            from: ["/docs/next/ai-quick-start-guide"],
+            to: "/docs/next/unstructured-data-quick-start-guide",
+          },
+          {
             from: ["/docs/releases", "/docs/next/releases"],
             to: "/releases/release-1.1",
           },
@@ -162,6 +166,7 @@ module.exports = {
           },
           {
             from: [
+              "/releases/release-0.15.1",
               "/releases/release-0.15.0",
             ],
             to: "/releases/release-0.15",
@@ -529,8 +534,8 @@ module.exports = {
               path: "next",
               banner: "unreleased",
             },
-            "1.1.1": {
-              label: "1.1.1",
+            "1.2.0": {
+              label: "1.2.0",
               path: "",
             },
           },

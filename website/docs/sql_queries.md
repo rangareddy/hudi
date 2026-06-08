@@ -2,7 +2,7 @@
 title: SQL Queries
 summary: "In this page, we go over querying Hudi tables using SQL"
 toc: true
-last_modified_at: 
+last_modified_at: 2026-05-29T00:00:00-00:00
 ---
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
@@ -13,6 +13,24 @@ This page will show how to issue different queries and discuss any specific inst
 
 ## Spark SQL
 The Spark [quickstart](quick-start-guide.md) provides a good overview of how to use Spark SQL to query Hudi tables. This section will go into more advanced configurations and functionalities.
+
+:::tip Setting Hudi read options at the session level
+Hudi 1.2.0 supports setting read options at the **Spark session level** using the `spark.hoodie.*` prefix.
+Any `spark.hoodie.X` config set via `spark.conf.set` or `--conf` is treated equivalently to `hoodie.X`.
+
+Config precedence (low → high):
+1. Global DFS properties
+2. `spark.hoodie.*` session-level configs (normalized to `hoodie.*`)
+3. Explicit `hoodie.*` data source options or per-table `SET` commands
+
+```sql
+-- Apply a Hudi read option for the entire session
+SET spark.hoodie.metadata.column.stats.enable = true;
+SELECT * FROM hudi_table WHERE price BETWEEN 10.0 AND 50.0;
+```
+
+If both `spark.hoodie.X` and `hoodie.X` are set, the explicit `hoodie.X` value takes precedence.
+:::
 
 ### Snapshot Query
 Snapshot queries are the most common query type for Hudi tables. Spark SQL supports snapshot queries on both COPY_ON_WRITE and MERGE_ON_READ tables.
@@ -316,6 +334,10 @@ FROM hudi_table_changes(
 )
 ```
 
+:::note
+Incremental queries are currently not supported for Merge-on-Read (MoR) tables with partial updates.
+:::
+
 :::info Incremental vs CDC Queries
 Incremental queries offer even better query efficiency than even the CDC queries above, since they amortize the cost of compactions across your data lake.
 For e.g the table has received 10 million modifications across 1 million records over a time window, incremental queries can fetch the latest value for
@@ -328,9 +350,199 @@ Please refer to [configurations](basic_configurations.md) section for the import
 :::note Incremental Query Checkpointing between Hudi 0.x and 1.0.
 In Hudi 1.0, we switch the incremental and CDC query to used completion time, instead of instant time, to determine the
 range of commits to incrementally pull from. The checkpoint stored for Hudi incremental source and related sources is
-also changed to use completion time. To support compatiblity, Hudi does a checkpoint translation from requested instant
+also changed to use completion time. To support compatibility, Hudi does a checkpoint translation from requested instant
 time to completion time depending on the source table version.
 :::
+
+### Vector Similarity Search
+
+The `hudi_vector_search` table-valued function (TVF) runs top-K similarity search over a
+[`VECTOR`](sql_ddl.md#vector) column. It returns the `top_k` rows whose VECTOR column is closest to
+a query vector under the chosen distance metric.
+
+```sql
+SELECT *
+FROM hudi_vector_search(
+    table_name,        -- STRING: registered table name or path
+    vector_column,     -- STRING: VECTOR column name
+    query_vector,      -- ARRAY: query embedding
+    top_k,             -- INT: number of nearest neighbors
+    [distance_metric], -- STRING: 'cosine' (default), 'l2', 'dot_product'
+    [algorithm]        -- STRING: 'brute_force' (default)
+)
+```
+
+Parameters:
+
+| Parameter | Type | Default | Description |
+|:----------|:-----|:--------|:------------|
+| `table_name` | STRING | (required) | Registered table name or table path. |
+| `vector_column` | STRING | (required) | Name of the VECTOR column. |
+| `query_vector` | ARRAY&lt;FLOAT&gt; | (required) | Query embedding; must match the column's dimension and element type. |
+| `top_k` | INT | (required) | Number of nearest neighbors. |
+| `distance_metric` | STRING | `'cosine'` | One of `'cosine'`, `'l2'`, `'dot_product'`. |
+| `algorithm` | STRING | `'brute_force'` | Only `'brute_force'` is currently supported. |
+
+Return schema: all columns from the source table (excluding the embedding column) plus
+`_hudi_distance DOUBLE`. Results are ordered by `_hudi_distance` ascending, so the closest matches
+come first.
+
+Distance metrics:
+
+| Metric | Formula | Range | Notes |
+|:-------|:--------|:------|:------|
+| `cosine` | 1 − cos(a, b), clamped to [0, 2] | [0, 2] | Returns 1.0 for zero vectors. |
+| `l2` | sqrt(sum((a[i] − b[i])²)) | [0, +∞) | |
+| `dot_product` | −(a · b) | (−∞, +∞) | Negated so ascending sort surfaces the most similar rows first. |
+
+```sql
+-- Find the 10 nearest neighbors to a query embedding
+SELECT product_id, name, _hudi_distance
+FROM hudi_vector_search('products', 'embedding',
+                        ARRAY(0.12, -0.03, 0.87, /* ... */),
+                        10, 'cosine')
+ORDER BY _hudi_distance;
+```
+
+RAG context retrieval to apply a distance threshold to drop weak matches:
+
+```sql
+-- Retrieve the 5 most relevant document chunks for an LLM prompt
+SELECT chunk_id, text_content, _hudi_distance
+FROM hudi_vector_search(
+    'document_chunks', 'embedding',
+    ARRAY(/* embedding of the user's question */),
+    5, 'cosine'
+)
+WHERE _hudi_distance < 0.3;
+```
+
+Cross-modal search to query a corpus of image embeddings with a text embedding (e.g., CLIP):
+
+```sql
+SELECT image_id, caption, _hudi_distance
+FROM hudi_vector_search(
+    'image_catalog', 'clip_embedding',
+    ARRAY(/* text embedding from CLIP */),
+    20, 'cosine'
+);
+```
+
+The TVF also works on Lance-backed tables. Set `hoodie.table.base.file.format=lance` at table
+creation (see [Storage Layouts → Lance](storage_layouts.md#lance-base-file-format)); the call site
+is unchanged.
+
+:::note
+`cosine` distance computes `1 − cos(a, b)`. If embeddings are not L2-normalized before write,
+results reflect both vector direction and magnitude.
+:::
+
+#### `hudi_vector_search_batch`
+
+The batch variant runs many query vectors at once:
+
+```sql
+SELECT *
+FROM hudi_vector_search_batch(
+    corpus_table,           -- STRING
+    corpus_embedding_col,   -- STRING
+    query_table,            -- STRING: table holding query vectors
+    query_embedding_col,    -- STRING: VECTOR column in query table
+    top_k,                  -- INT: neighbors per query
+    [distance_metric],
+    [algorithm]
+)
+```
+
+Return schema: corpus columns + query columns + `_hudi_distance DOUBLE` +
+`_hudi_query_index LONG` (identifies the query that produced the row). If corpus and query share
+column names, query columns are prefixed with `_hudi_query_`.
+
+### Reading BLOB Columns
+
+The `read_blob()` SQL function materializes raw bytes from a [`BLOB`](sql_ddl.md#blob) column. It
+handles both storage modes uniformly: for `INLINE`, it extracts the embedded bytes; for
+`OUT_OF_LINE`, it reads `reference.length` bytes starting at `reference.offset` from
+`reference.external_path`.
+
+```sql
+SELECT asset_id, read_blob(content) AS raw_bytes
+FROM media_assets
+WHERE asset_id = 'asset_001';
+```
+
+Standard queries on a BLOB column return the underlying struct (descriptor + bytes), not raw bytes:
+
+```sql
+SELECT asset_id, content.type, content.reference.external_path
+FROM media_assets;
+```
+
+#### Inline read mode
+
+| Property | Default | Description |
+|:---------|:--------|:------------|
+| `hoodie.read.blob.inline.mode` | `DESCRIPTOR` | Controls how `INLINE` BLOBs surface on read. `DESCRIPTOR` (default) returns an out-of-line-shaped reference pointing at the in-file coordinates of the bytes. No bytes are materialized. `CONTENT` materializes the raw inline bytes in the `data` field on every read. |
+| `hoodie.blob.batching.max.gap.bytes` | `4096` | Maximum gap between consecutive byte ranges before they are merged into a single read. Larger values reduce I/O calls at the cost of reading some unused bytes. |
+| `hoodie.blob.batching.lookahead.size` | `50` | Number of rows to buffer for batch-read detection. Larger values improve batching for sorted data but increase memory usage. |
+
+`CONTENT` mode is always used for internal operations (compaction, merge, log replay) regardless of
+this setting.
+
+:::caution Calling `read_blob()` on INLINE columns under DESCRIPTOR mode
+Under the default `DESCRIPTOR` mode, calling `read_blob()` on an `INLINE` BLOB column throws.
+The raw bytes are not materialized in the scan, so there is nothing for `read_blob()` to return.
+To read inline bytes with `read_blob()`, switch to `CONTENT` mode first:
+
+```sql
+SET hoodie.read.blob.inline.mode=CONTENT;
+SELECT asset_id, read_blob(content) AS raw_bytes
+FROM media_assets WHERE asset_id = 'asset_001';
+```
+
+This setting affects only `INLINE` columns. `OUT_OF_LINE` always fetches from the external path.
+:::
+
+`read_blob()` is a Spark SQL function; Hive, BigQuery, and other engines reading the underlying
+struct directly do not have it. Apply predicates before calling `read_blob()` to bound the bytes
+resolved per row.
+
+### Querying VARIANT Columns
+
+[`VARIANT`](sql_ddl.md#variant) columns hold semi-structured (JSON-like) data. Cast to `STRING` for
+JSON output:
+
+```sql
+SELECT event_id, cast(payload as STRING) AS payload_json FROM events;
+```
+
+VARIANT columns support `UPDATE`, `DELETE`, and `MERGE` on both COW and MOR tables.
+
+:::note Spark 3.x (3.4 / 3.5)
+`parse_json()`, `variant_get()`, and `cast(... as STRING)` require Spark 4.0+. On Spark 3.x,
+read raw binary buffers via the
+[backward-compat DDL](sql_ddl.md#reading-variant-from-spark-3x-backward-compatibility);
+predicate pushdown into VARIANT fields is not available.
+:::
+
+#### End-to-end example
+
+`hudi_vector_search` and `read_blob()` compose in a single query that returns both the matching
+rows and the materialized bytes for each:
+
+```sql
+SELECT image_id, category,
+       read_blob(image_bytes) AS resolved_bytes,
+       _hudi_distance
+FROM hudi_vector_search(
+    '/tmp/hudi_pets', 'embedding',
+    ARRAY(0.12, -0.03, /* ... */),
+    5, 'cosine'
+)
+ORDER BY _hudi_distance;
+```
+
+See [Unstructured Data Quick Start Guide](unstructured-data-quick-start-guide.md) for a full end-to-end walk-through.
 
 ### Query Indexes and Timeline
 
@@ -439,7 +651,7 @@ select * from hudi_table/*+ OPTIONS('read.streaming.enabled'='true', 'read.start
 |  -----------  | -------  | ------- | ------- |
 | `read.streaming.enabled` | false | `false` | Specify `true` to read as streaming |
 | `read.start-commit` | false | the latest commit | Start commit time in format 'yyyyMMddHHmmss', use `earliest` to consume from the start commit |
-| `read.streaming.skip_compaction` | false | `false` | Whether to skip compaction instants for streaming read, generally for two purpose: 1) Avoid consuming duplications from compaction instants created for created by Hudi versions < 0.11.0 or when `hoodie.compaction.preserve.commit.metadata` is disabled 2) When change log mode is enabled, to only consume change for right semantics. |
+| `read.streaming.skip_compaction` | false | `false` | Whether to skip compaction instants for streaming read, generally for two purpose: 1) Avoid consuming duplications from compaction instants for tables created by Hudi versions < 0.11.0 or when `hoodie.compaction.preserve.commit.metadata` is disabled 2) When change log mode is enabled, to only consume change for right semantics. |
 | `clean.retain_commits` | false | `10` | The max number of commits to retain before cleaning, when change log mode is enabled, tweaks this option to adjust the change log live time. For example, the default strategy keeps 50 minutes of change logs if the checkpoint interval is set up as 5 minutes. |
 
 :::note
@@ -499,7 +711,7 @@ internal Hudi metadata such as commit time, record key, and partition path. The 
 | Metadata Column Name     | Description                                                                    |
 |--------------------------|--------------------------------------------------------------------------------|
 | `_hoodie_commit_time`    | The commit time when the record was committed                                |
-| `_hoodie_commit_seqno`   | The commit requence number of the record                                     |
+| `_hoodie_commit_seqno`   | The commit sequence number of the record                                     |
 | `_hoodie_record_key`     | The record key of the record                                                  |
 | `_hoodie_partition_path` | The partition path of the record                                          |
 | `_hoodie_file_name`      | The file name where the record is stored                                       |
