@@ -1,14 +1,17 @@
 ---
 title: "Apache Hudi - The Data Lake Platform"
 excerpt: "It's been called many things. But, we have always been building a data lake platform"
+description: "It's been called many things. But, we have always been building a data lake platform"
 authors: [vinoth-chandar]
 category: deep-dive
 image: /assets/images/blog/hudi_streaming.png
+last_update:
+  date: 2026-07-06
 tags:
 - data lakehouse
 ---
 
-As early as 2016, we set out a [bold, new vision](https://www.oreilly.com/content/ubers-case-for-incremental-processing-on-hadoop/) reimagining batch data processing through a new “**incremental**” data processing stack - alongside the existing batch and streaming stacks. 
+Apache Hudi is a streaming data lake platform built around a database kernel—not merely a table format or a transactional layer, but a complete software stack with built-in table services, data services, and incremental processing capabilities. As early as 2016, we set out a [bold, new vision](https://www.oreilly.com/content/ubers-case-for-incremental-processing-on-hadoop/) reimagining batch data processing through a new “**incremental**” data processing stack - alongside the existing batch and streaming stacks. 
 While a stream processing pipeline does row-oriented processing, delivering a few seconds of processing latency, an incremental pipeline would apply the same principles to *columnar* data in the data lake, 
 delivering orders of magnitude improvements in processing efficiency within few minutes, on extremely scalable batch storage/compute infrastructure. This new stack would be able to effortlessly support regular batch processing for bulk reprocessing/backfilling as well.
 Hudi was built as the manifestation of this vision, rooted in real, hard problems faced at [Uber](https://eng.uber.com/uber-big-data-platform/) and later took a life of its own in the open source community. Together, we have been able to 
@@ -24,6 +27,10 @@ much like how Kafka/Pulsar enable efficient storage for event streaming. [Many o
 But first, we needed to tackle the basics - transactions and mutability - on the data lake. In many ways, Apache Hudi pioneered the transactional data lake movement as we know it today. Specifically, during a time when more special-purpose systems were being born, Hudi introduced a server-less, transaction layer, which worked over the general-purpose Hadoop FileSystem abstraction on Cloud Stores/HDFS. This model helped Hudi to scale writers/readers to 1000s of cores on day one, compared to warehouses which offer a richer set of transactional guarantees but are often bottlenecked by the 10s of servers that need to handle them. We also experience a lot of joy to see similar systems (Delta Lake for e.g) later adopt the same server-less transaction layer model that we originally shared way back in [early '17](https://eng.uber.com/hoodie/). We consciously introduced two table types Copy On Write (with simpler operability) and Merge On Read (for greater flexibility) and now these terms are used in [projects](https://github.com/apache/iceberg/pull/1862) outside Hudi, to refer to similar ideas being borrowed from Hudi. Through open sourcing and [graduating](https://blogs.apache.org/foundation/entry/the-apache-software-foundation-announces64) from the Apache Incubator, we have made some great progress elevating these ideas [across the industry](http://hudi.apache.org/docs/powered_by.html), as well as bringing them to life with a cohesive software stack. Given the exciting developments in the past year or so that have propelled data lakes further mainstream, we thought some perspective can help users see Hudi with the right lens, appreciate what it stands for, and be a part of where it’s headed. At this time, we also wanted to shine some light on all the great work done by [180+ contributors](https://github.com/apache/hudi/graphs/contributors) on the project, working with more than 2000 unique users over slack/github/jira, contributing all the different capabilities Hudi has gained over the past years, from its humble beginnings.
 
 This is going to be a rather long post, but we will do our best to make it worth your time. Let’s roll.
+
+:::info Related reading
+For a 2026 explainer companion to this essay, see [What is a Streaming Data Lake?](/blog/2026/07/21/what-is-a-streaming-data-lake)
+:::
 
 ## Data Lake Platform
 
@@ -152,3 +159,13 @@ There is a fundamental tradeoff today in data lakes between faster writing and g
 ## Onwards
 
 We hope that this blog painted a complete picture of Apache Hudi, staying true to its founding principles. Interested users and readers can expect blogs delving into each layer of the stack and an overhaul of our docs along these lines in the coming weeks/months. We view the current efforts around table formats as merely removing decade-old bottlenecks in data lake storage/query planes, problems which have been already solved very well in cloud warehouses like Big Query/Snowflake. We would like to underscore that our vision here is much greater, much more technically challenging. We as an industry are just wrapping our heads around many of these deep, open-ended problems, that need to be solved to marry stream processing and data lakes, with scale and simplicity. We hope to continue to put community first and build/solve these hard problems together. If these challenges excite you and you would like to build for that exciting future, please come join our [community](http://hudi.apache.org/contribute/get-involved).
+
+## FAQ
+
+<PostFAQ heading={null} items={[
+  {question: 'What is Apache Hudi?', answer: 'Apache Hudi is a streaming data lake platform built around a database kernel. By optimizing for fast upserts and change streams, it provides primitives to data lake workloads comparable to what Apache Kafka does for event streaming, while also providing a self-managing data plane for large-scale batch processing, ad hoc queries, and ML pipelines on the lake.'},
+  {question: 'Is Apache Hudi just a table format or a transactional layer?', answer: 'No. The functionality provided by a table format is merely one layer in the Hudi software stack. Hudi implements a table format internally, but adds a transactional layer designed around an event log, pluggable indexes, built-in table services, and data services like the DeltaStreamer ingestion utility—together forming a complete platform.'},
+  {question: 'What is incremental processing?', answer: 'Incremental processing applies stream processing principles to columnar data in the data lake, delivering orders of magnitude improvements in processing efficiency within a few minutes of latency, on scalable batch storage and compute infrastructure. It sits alongside the existing batch and streaming stacks and can also support regular batch processing for bulk reprocessing or backfills.'},
+  {question: 'How does Hudi handle concurrency between writers and table services?', answer: 'Hudi provides snapshot isolation between writers, table services, and readers. It uses optimistic concurrency control between writers, while providing lock-free, non-blocking MVCC-based concurrency control between writers and table services and between different table services. This allows, for example, compaction to run in the background without blocking ingestion.'},
+  {question: 'What table services are built into Hudi?', answer: 'Hudi ships with built-in services that keep table storage and metadata performant: archival to manage timeline history, cleaning to remove file slices past the retention period, compaction to merge base files with delta logs, clustering to reorganize records for query efficiency, and bootstrap for zero-copy migration of plain Parquet tables. They can run synchronously after each write or asynchronously as background jobs.'},
+]} />

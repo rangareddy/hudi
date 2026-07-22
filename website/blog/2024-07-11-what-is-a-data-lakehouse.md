@@ -1,9 +1,12 @@
 ---
 title: "What is a Data Lakehouse & How does it Work?"
 excerpt: "Explains the concept of the lakehouse architecture"
+description: "Explains the concept of the lakehouse architecture"
 authors: [dipankar-mazumdar]
 category: how-to
 image: /assets/images/blog/dlh_1200.png
+last_update:
+  date: 2026-07-06
 tags:
 - data lakehouse
 - apache iceberg
@@ -11,12 +14,16 @@ tags:
 - open architecture
 ---
 
-A data lakehouse is a hybrid data architecture that combines the best attributes of data warehouses and data lakes to address their respective limitations. This innovative approach to data management brings the transactional capabilities of data warehouses to cloud-based data lakes, offering scalability at lower costs. 
+A data lakehouse is a hybrid data architecture that combines the best attributes of data warehouses and data lakes to address their respective limitations. It works by layering an open table format—such as Apache Hudi, Apache Iceberg, or Delta Lake—over low-cost cloud object storage, bringing the transactional capabilities of data warehouses to cloud-based data lakes while offering scalability at lower costs.
 
 ![/assets/images/blog/dlh_new.png](/assets/images/blog/dlh_new.png)
 <p align = "center">Figure: Data Lakehouse Architecture</p>
 
 The lakehouse architecture supports the management of various data types, such as structured, semi-structured, and unstructured, and caters to a wide range of use cases, including business intelligence, machine learning, and real-time streaming. This flexibility enables businesses to move away from the traditional two-tier architecture—using warehouses for relational workloads and data lakes for machine learning and advanced analytics. As a result, organizations can reduce operational costs and streamline their data strategies by working on a single data store.
+
+:::info Related reading
+Newer companion explainers to this guide: [What is an Open Table Format?](/blog/2026/07/14/what-is-an-open-table-format), [Data Lakehouse vs Data Warehouse vs Data Lake](/blog/2026/07/23/lakehouse-vs-data-warehouse-vs-data-lake), and [Open Table Format vs Data Lakehouse](/blog/2026/07/24/open-table-format-vs-data-lakehouse).
+:::
 
 ## The Evolution of Data Storage Solutions: How did we go from Warehouses to Lakes to Lakehouses?
 Historically, organizations have been investing in building centralized and scalable data architectures to enable more data access and to support different types of analytical workloads. As demand for these workloads has grown, data architectures have evolved to address the complex needs of modern data processing and storage.
@@ -151,3 +158,13 @@ The future of data lakehouses is shaped by their truly open data architecture, w
 
 ## Conclusion
 The data lakehouse architecture utilizes an open data foundation to blend the best features of data lakes and warehouses, establishing a versatile platform that effectively handles a range of analytical workloads. This architecture marries cost-effective data management with robust performance, offering a cohesive system for both batch and streaming data processes. By enabling organizations to work on a single data store, this approach not only simplifies management but also equips businesses to swiftly integrate new technologies and adapt to evolving market demands. Additionally, by supporting diverse data types and analytical workloads, the lakehouse framework eliminates the need for a two-tier architecture, which helps save costs and enhances the efficiency of data teams.
+
+## FAQ
+
+<PostFAQ heading={null} items={[
+  {question: 'What is a data lakehouse?', answer: 'A data lakehouse is a hybrid data architecture that combines the transactional capabilities of data warehouses with the scalability and low cost of cloud data lakes. It stores data in open formats on cloud object storage and adds a table format layer that provides ACID transactions, schema management, and time travel. This lets organizations run BI, machine learning, and streaming workloads on a single data store.'},
+  {question: 'How is a data lakehouse different from a data warehouse or a data lake?', answer: 'Data warehouses offer strong transactional guarantees but rely on proprietary storage formats that risk lock-in and handle unstructured data poorly. Data lakes store any data type cheaply in open file formats but lack ACID transactions and often struggle with data quality and governance. A lakehouse merges the two, bringing warehouse-like reliability and performance to openly accessible data lake storage.'},
+  {question: 'What are the main components of a data lakehouse architecture?', answer: 'A lakehouse consists of six modular components: lake storage (cloud object stores like Amazon S3), open file formats (Apache Parquet or ORC), a table format (Apache Hudi, Apache Iceberg, or Delta Lake), a storage engine that handles clustering, compaction, cleaning, and indexing, a catalog that tracks tables and their metadata, and compute engines such as Spark, Flink, Presto, or Trino that read and write the data.'},
+  {question: 'What role does the table format play in a lakehouse?', answer: 'The table format is an open metadata layer above file formats like Apache Parquet that defines a schema on top of immutable data files. It allows different engines to concurrently read and write the same dataset with ACID transactions, and brings features such as schema evolution, partitioning, and time travel.'},
+  {question: 'Why is Apache Hudi considered more than a table format?', answer: 'Apache Hudi is a transactional data lakehouse platform built around a database kernel, not just a metadata specification. Beyond table-level abstractions, it includes tightly integrated table services for clustering, compaction, cleaning, and indexing, plus platform services like ingestion tools, catalog sync, and an admin CLI. It also supports fast updates and deletes through a pluggable indexing mechanism and enables incremental processing of new data.'},
+]} />
