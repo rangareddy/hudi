@@ -312,13 +312,54 @@ Read more in depth about concurrency control in the [concurrency control concept
 Hudi Streamer uses checkpoints to keep track of what data has been read already so it can resume without needing to reprocess all data.
 When using a Kafka source, the checkpoint is the [Kafka Offset](https://cwiki.apache.org/confluence/display/KAFKA/Offset+Management) 
 When using a DFS source, the checkpoint is the 'last modified' timestamp of the latest file read.
-Checkpoints are saved in the .hoodie commit file as `streamer.checkpoint.key`.
+Checkpoints are saved in the .hoodie commit file. Completion time checkpoints are stored under
+`streamer.checkpoint.key.v2` and request time checkpoints under `deltastreamer.checkpoint.key`. Which one applies
+depends on the source, and for the Hudi incremental source also on the table version — see below.
 
 If you need to change the checkpoints for reprocessing or replaying data you can use the following options:
 
-- `--checkpoint` will set `streamer.checkpoint.reset_key` in the commit file to overwrite the current checkpoint. Format of checkpoint depends on [KAFKA_CHECKPOINT_TYPE](configurations.md#hoodiestreamersourcekafkacheckpointtype). By default (for type `string`), checkpoint should be provided as: `topicName,0:offset0,1:offset1,2:offset2`. For type `timestamp`, checkpoint should be provided as long value of desired timestamp. For type `single_offset`, we assume that topic consists of a single partition, so checkpoint should be provided as long value of desired offset.
+- `--checkpoint` will set the matching reset key in the commit file to overwrite the current checkpoint, either `streamer.checkpoint.reset.key.v2` or `deltastreamer.checkpoint.reset_key`. Format of checkpoint depends on [KAFKA_CHECKPOINT_TYPE](configurations.md#hoodiestreamersourcekafkacheckpointtype). By default (for type `string`), checkpoint should be provided as: `topicName,0:offset0,1:offset1,2:offset2`. For type `timestamp`, checkpoint should be provided as long value of desired timestamp. For type `single_offset`, we assume that topic consists of a single partition, so checkpoint should be provided as long value of desired offset.
 - `--source-limit` will set a maximum amount of data to read from the source. For DFS sources, this is max # of bytes read.
 For Kafka, this is the max # of events to read.
+
+#### Resetting the checkpoint for the Hudi incremental source
+
+When Hudi Streamer writes a target table at table version 8 or higher using `HoodieIncrSource`, it tracks progress by
+**completion time** instead of requested instant time, and records it in the commit metadata under
+`streamer.checkpoint.key.v2`. A bare timestamp would be ambiguous between the two, so `--checkpoint` has to state which
+one it is. This form is required from Hudi 1.0.1 onward; on 1.0.0 the prefixes are not recognised and `--checkpoint`
+takes a bare completion time.
+
+```shell
+# resume after the instant with this requested instant time
+--checkpoint resumeFromInstantRequestTime:20250110120000000
+
+# resume after the instant with this completion time
+--checkpoint resumeFromInstantCompletionTime:20250110120005000
+```
+
+Both forms resume from the same position. The request time form is translated internally to the completion time of that
+same instant, and ingestion proceeds in completion time order either way. Whichever value you pass is recorded verbatim
+under `streamer.checkpoint.reset.key.v2`.
+
+Passing a bare timestamp is rejected:
+
+```plain
+Illegal checkpoint key override `20250110120000000`. Valid format is either
+`resumeFromInstantRequestTime:<checkpoint value>` or `resumeFromInstantCompletionTime:<checkpoint value>`.
+```
+
+:::note
+`S3EventsHoodieIncrSource` and `GcsEventsHoodieIncrSource` are excluded from completion time checkpoints. They continue
+to take a plain `--checkpoint` value regardless of the table version.
+:::
+
+:::caution
+Do not pass `--checkpoint` or `--ignore-checkpoint` on the run that upgrades or downgrades the table version while using
+a Hudi incremental source. Rather than risk applying the override under the wrong checkpoint semantics, Hudi fails the
+job with a message asking you to drop those options. Let the upgrade finish first, then reset the checkpoint on a later
+run.
+:::
 
 ### Transformers
 
@@ -627,6 +668,89 @@ Spark SQL should be configured using this hoodie config:
 Using `org.apache.hudi.utilities.sources.SqlFileBasedSource` allows setting the SQL queries in a file to read from any
 table. SQL file path should be configured using this hoodie config:
 `hoodie.streamer.source.sql.file = 'hdfs://xxx/source.sql'`
+
+#### Debezium
+
+Hudi Streamer can keep a Hudi table in sync with an upstream database by ingesting change data capture (CDC) events
+produced by [Debezium](https://debezium.io/). Debezium publishes each change as an Avro message on a Kafka topic and
+registers the schema with a Confluent schema registry. The Debezium sources read that topic, flatten the nested Debezium
+change envelope into ordinary table columns, and apply the resulting inserts, updates and deletes to the target table.
+
+There is one source and one matching payload class per database:
+
+| Database   | Source class                                                        | Payload class                                                       |
+|------------|---------------------------------------------------------------------|---------------------------------------------------------------------|
+| PostgreSQL | `org.apache.hudi.utilities.sources.debezium.PostgresDebeziumSource` | `org.apache.hudi.common.model.debezium.PostgresDebeziumAvroPayload` |
+| MySQL      | `org.apache.hudi.utilities.sources.debezium.MysqlDebeziumSource`    | `org.apache.hudi.common.model.debezium.MySqlDebeziumAvroPayload`    |
+
+Note that the two halves spell MySQL differently: the source is `Mysql...` while the payload is `MySql...`.
+
+Both sources read Avro and require a schema registry, so set `--schemaprovider-class` to
+`org.apache.hudi.utilities.schema.SchemaRegistryProvider` and point `hoodie.streamer.schemaprovider.registry.url` at the
+subject for the topic. The registry has to be given to the Kafka consumer a second time, as a plain
+`schema.registry.url`, because Hudi drops every `hoodie.*` property before it constructs the consumer and the schema
+provider's URL therefore never reaches the deserializer. The value deserializer itself already defaults to
+`io.confluent.kafka.serializers.KafkaAvroDeserializer`, so `hoodie.streamer.source.kafka.value.deserializer.class` only
+needs setting in order to override it.
+
+A property file for a PostgreSQL table:
+
+```properties
+hoodie.streamer.source.kafka.topic=postgres.public.customers
+hoodie.streamer.schemaprovider.registry.url=http://localhost:8081/subjects/postgres.public.customers-value/versions/latest
+bootstrap.servers=localhost:9092
+auto.offset.reset=earliest
+schema.registry.url=http://localhost:8081
+
+hoodie.datasource.write.recordkey.field=id
+```
+
+and the job that reads it:
+
+```java
+[hoodie]$ spark-submit \
+  --packages org.apache.hudi:hudi-utilities-slim-bundle_2.12:1.2.0,org.apache.hudi:hudi-spark3.5-bundle_2.12:1.2.0 \
+  --class org.apache.hudi.utilities.streamer.HoodieStreamer `ls packaging/hudi-utilities-slim-bundle/target/hudi-utilities-slim-bundle-*.jar` \
+  --props file://${PWD}/debezium-source.properties \
+  --schemaprovider-class org.apache.hudi.utilities.schema.SchemaRegistryProvider \
+  --source-class org.apache.hudi.utilities.sources.debezium.PostgresDebeziumSource \
+  --payload-class org.apache.hudi.common.model.debezium.PostgresDebeziumAvroPayload \
+  --source-ordering-field _event_lsn \
+  --target-base-path file:///tmp/hudi-debezium-customers \
+  --target-table customers \
+  --table-type MERGE_ON_READ \
+  --op UPSERT \
+  --continuous
+```
+
+That example ingests PostgreSQL. For MySQL, substitute the three Debezium-specific arguments:
+
+```java
+  --source-class org.apache.hudi.utilities.sources.debezium.MysqlDebeziumSource \
+  --payload-class org.apache.hudi.common.model.debezium.MySqlDebeziumAvroPayload \
+  --source-ordering-field _event_seq \
+```
+
+The record key must be the primary key of the upstream table, so that later changes to a row update it in place. A
+Merge-on-Read table suits the small, frequent writes a CDC stream produces, but Copy-on-Write works as well.
+
+**Ordering.** Change events can reach Kafka out of order, so the payload decides which version of a row wins rather than
+relying on arrival order. For PostgreSQL that is the log sequence number in `_event_lsn`, which the payload reads
+directly from the record. For MySQL the source derives an `_event_seq` column from the binlog coordinates
+`_event_bin_file` and `_event_pos`, giving the same total ordering. Pass whichever of the two columns applies as
+`--source-ordering-field`, since the payload compares that value when it deduplicates records within a batch.
+
+**Deletes.** The flattened `_change_operation_type` column carries the Debezium operation for each event, and the value
+`d` marks a delete. The payload applies those as deletes to the Hudi table instead of writing them as rows.
+
+For a table that is already being streamed, `hoodie.debezium.override.initial.checkpoint.key` sets the Kafka offsets the
+next run starts from. It is useful after seeding a table with a Debezium snapshot, or when the topic has been rewound.
+
+:::caution
+`hoodie.debezium.override.initial.checkpoint.key` takes effect on every batch for as long as it is set, not just the
+first one. While it is present the committed checkpoint is always the override, so the job keeps restarting from that
+same offset instead of advancing. Set it for the run that resumes the stream, then remove it.
+:::
 
 ### Error Table
 
